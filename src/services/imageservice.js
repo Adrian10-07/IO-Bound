@@ -2,7 +2,7 @@ const path = require("path");
 const fs = require("fs").promises;
 const fsSync = require("fs");
 const imageProcessor = require("./imageProcesador");
-const {imageEvents} = require("../observers/imageObserver");
+const { imageEvents } = require("../observers/imageObserver");
 
 const imagesDir = path.join(process.cwd(), "images");
 if (!fsSync.existsSync(imagesDir)) fsSync.mkdirSync(imagesDir);
@@ -12,27 +12,25 @@ async function saveUploadedImage(file) {
     if (!file) throw new Error("Archivo no recibido");
 
     const fileObj = Array.isArray(file) ? file[0] : file;
-    
     if (!fileObj) throw new Error("Archivo no encontrado en el array");
 
-    // accedemos a sus propiedades
-    const filePath = fileObj.filepath;
-    
-    if (!filePath) {
-      throw new Error("No se pudo obtener la ruta del archivo");
-    }
+    const filePath = fileObj.filepath || fileObj.path;
+    if (!filePath) throw new Error("No se pudo obtener la ruta del archivo");
 
-    imageEvents.notify('image.uploaded', { filename: fileObj.originalFilename, path: filePath });
-    imageEvents.notify('image.processing.start', { filename: fileObj.originalFilename });
-    await imageProcessor.processImage(filePath);
-    imageEvents.notify('image.processing.end', { filename: fileObj.originalFilename });
+    // notificar subida (con timestamp para medir latencia si se desea)
+    imageEvents.notify('image.uploaded', { filename: fileObj.originalFilename, path: filePath, timestamp: Date.now() });
 
-    // Procesamiento con worker
-    await imageProcessor.processImage(filePath);
+    // Iniciar procesamiento (se notifica inicio para métricas)
+    imageEvents.notify('image.processing.start', { filename: fileObj.originalFilename, path: filePath });
+    const result = await imageProcessor.processImage(filePath);
+    // Fin de procesamiento
+    imageEvents.notify('image.processing.end', { filename: fileObj.originalFilename, path: filePath });
+
     return { 
       message: "Imagen guardada y procesada correctamente", 
       filePath,
-      filename: fileObj.originalFilename || fileObj.newFilename
+      filename: fileObj.originalFilename || fileObj.newFilename,
+      result
     };
   } catch (err) {
     imageEvents.notify('image.error', { error: err.message });
