@@ -3,21 +3,19 @@ class ImageEventObserver {
     this.observers = [];
   }
   
-  // Suscribir un observador
   subscribe(observer) {
     this.observers.push(observer);
     console.log(`[Observer] Nuevo observador suscrito: ${observer.constructor.name}`);
   }
   
-  // Notificar a todos los observadores
   notify(event, data) {
     this.observers.forEach(observer => {
-      observer.update(event, data);
+      try { observer.update(event, data); } 
+      catch (err) { console.error(`[Observer] Error en ${observer.constructor.name}:`, err); }
     });
   }
 }
 
-// Observador concreto: Logger
 class LoggerObserver {
   update(event, data) {
     const timestamp = new Date().toISOString();
@@ -25,7 +23,6 @@ class LoggerObserver {
   }
 }
 
-// Observador concreto: Métricas
 class MetricsObserver {
   constructor() {
     this.metrics = {
@@ -35,50 +32,60 @@ class MetricsObserver {
       uploadTimes: [],
       processingTimes: []
     };
+    //  para medir duration por archivo concurrente
+    this.startTimes = {};
   }
   
-  update(event, data) {
+  update(event, data = {}) {
+    const name = data.filename || data.filePath || data.jobId || 'unknown';
     switch(event) {
       case 'image.uploaded':
         this.metrics.totalUploads++;
+        if (data.timestamp) this.metrics.uploadTimes.push(Date.now() - data.timestamp);
         break;
       case 'image.processing.start':
-        this.metrics.startTime = Date.now();
+        this.startTimes[name] = Date.now();
         break;
       case 'image.processing.end':
-        const duration = Date.now() - this.metrics.startTime;
-        this.metrics.processingTimes.push(duration);
+        if (this.startTimes[name]) {
+          const duration = Date.now() - this.startTimes[name];
+          this.metrics.processingTimes.push(duration);
+          delete this.startTimes[name];
+        }
         this.metrics.totalProcessed++;
         break;
       case 'image.error':
         this.metrics.totalErrors++;
+        if (this.startTimes[name]) delete this.startTimes[name];
         break;
     }
   }
   
   getMetrics() {
-    const avgProcessingTime = this.metrics.processingTimes.length > 0
-      ? this.metrics.processingTimes.reduce((a, b) => a + b, 0) / this.metrics.processingTimes.length
+    const p = this.metrics;
+    const avgProcessingTime = p.processingTimes.length > 0
+      ? Math.round(p.processingTimes.reduce((a,b)=>a+b,0) / p.processingTimes.length)
+      : 0;
+    const avgUploadLatency = p.uploadTimes.length > 0
+      ? Math.round(p.uploadTimes.reduce((a,b)=>a+b,0) / p.uploadTimes.length)
       : 0;
     
     return {
-      totalUploads: this.metrics.totalUploads,
-      totalProcessed: this.metrics.totalProcessed,
-      totalErrors: this.metrics.totalErrors,
-      successRate: this.metrics.totalUploads > 0 
-        ? ((this.metrics.totalProcessed / this.metrics.totalUploads) * 100).toFixed(2) + '%'
-        : '0%',
-      avgProcessingTime: Math.round(avgProcessingTime) + 'ms'
+      totalUploads: p.totalUploads,
+      totalProcessed: p.totalProcessed,
+      totalErrors: p.totalErrors,
+      successRate: p.totalUploads > 0 ? ((p.totalProcessed / p.totalUploads) * 100).toFixed(2) + '%' : '0%',
+      avgProcessingTime: `${avgProcessingTime}ms`,
+      avgUploadLatency: `${avgUploadLatency}ms`,
+      processingSamples: p.processingTimes.length
     };
   }
 }
 
-// Singleton del sistema de eventos
 const imageEvents = new ImageEventObserver();
 const loggerObserver = new LoggerObserver();
 const metricsObserver = new MetricsObserver();
 
-// Suscribir observadores
 imageEvents.subscribe(loggerObserver);
 imageEvents.subscribe(metricsObserver);
 
