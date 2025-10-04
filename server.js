@@ -1,1 +1,1 @@
-require("./src/server_single.js");
+require("./src/cluster.js");
