@@ -5,7 +5,6 @@ class ImageEventObserver {
   
   subscribe(observer) {
     this.observers.push(observer);
-    console.log(`[Observer] Nuevo observador suscrito: ${observer.constructor.name}`);
   }
   
   notify(event, data) {
